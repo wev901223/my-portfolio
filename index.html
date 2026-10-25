@@ -3,11 +3,47 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>my-portfolio</title>
+  <title>Sunny Wen · 作品集</title>
+  <meta name="description" content="Sunny Wen 的作品集：一個想跳脫靠苦力賺錢的人，正在學用 AI 做出能獲利的工具。">
+  <link rel="stylesheet" href="styles/design-tokens.css">
   <link rel="stylesheet" href="styles/main.css">
 </head>
 <body>
-  <h1>my-portfolio</h1>
-  <script src="scripts/main.js"></script>
+  <main class="page">
+
+    <!-- 區塊：開頭 · 用途：名字與一句話介紹，讓人一眼知道我是誰 · 不建議刪，這是首頁的門面 -->
+    <header class="hero">
+      <h1 class="hero__name">Sunny Wen</h1>
+      <p class="hero__tagline">一個想跳脫靠苦力賺錢的人</p>
+    </header>
+
+    <!-- 區塊：關於我 · 用途：三到四句說明我在做什麼、為什麼學 AI · 不需要可整段刪掉 -->
+    <section class="about" aria-labelledby="about-title">
+      <h2 class="section-title" id="about-title">關於我</h2>
+      <p>我現在是房仲，同時正在學用 AI 寫程式。</p>
+      <p>我想學會利用 AI 做出自動 PO 文系統，或是做出可以獲利的工具。</p>
+      <p>AI 是代表現在這個時代的產物，我認為有必要學習它、活用它。</p>
+    </section>
+
+    <!-- 區塊：作品列表 · 用途：列出每週成品，之後每一堂的作品都加在這裡 · 不建議刪，這是作品集的核心 -->
+    <section class="works" aria-labelledby="works-title">
+      <h2 class="section-title" id="works-title">我的作品</h2>
+      <ul class="works__list">
+        <li class="work-card">
+          <h3 class="work-card__title">個人自我介紹頁</h3>
+          <p class="work-card__desc">第 1 堂成品：純 HTML 與 CSS，從 Skill 產出到部署上線</p>
+          <!-- 待補：換成第 1 堂自我介紹頁的 Vercel 網址 -->
+          <a class="work-card__link" href="#" target="_blank" rel="noopener">查看作品 →</a>
+        </li>
+      </ul>
+    </section>
+
+    <!-- 區塊：聯絡方式 · 用途：讓看完的人找得到我 · 不需要可整段刪掉 -->
+    <section class="contact" aria-labelledby="contact-title">
+      <h2 class="section-title" id="contact-title">聯絡我</h2>
+      <a class="contact__button" href="mailto:love90111244@gmail.com">love90111244@gmail.com</a>
+    </section>
+
+  </main>
 </body>
 </html>

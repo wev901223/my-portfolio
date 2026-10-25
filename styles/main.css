@@ -1,1 +1,132 @@
-/* 樣式：之後由網頁生成 Skill 產出 */
+/* 全站基礎：寬度包含內距與外框，算好的版面才不會被撐爆 · 不可刪 */
+* {
+  box-sizing: border-box;
+}
+
+/* 全站基礎：底色、文字色、字體都從設計規範來 · 不可刪 */
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.7;
+}
+
+/* 版面容器：限制內容最寬、左右留白，手機上字不會貼邊 · 不可刪 */
+.page {
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-3);
+}
+
+/* 共用：每個區塊的標題 · 不可刪，下面三個區塊都在用 */
+.section-title {
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-lg);
+}
+
+/* 共用：區塊之間的距離 · 不可刪 */
+.about,
+.works,
+.contact {
+  margin-top: var(--space-6);
+}
+
+/* 區塊：開頭 · 用途：名字與一句話介紹 · 刪掉 HTML 的開頭區塊後可一起刪 */
+.hero__name {
+  margin: 0;
+  font-size: var(--text-xl);
+  line-height: 1.3;
+}
+
+.hero__tagline {
+  margin: var(--space-2) 0 0;
+  color: var(--color-text-muted);
+}
+
+/* 區塊：關於我 · 用途：段落間距 · 刪掉 HTML 的關於我區塊後可一起刪 */
+.about p {
+  margin: 0 0 var(--space-2);
+}
+
+/* 區塊：作品列表 · 用途：作品卡片的棋盤排列（Grid） · 刪掉 HTML 的作品列表後可一起刪 */
+.works__list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.work-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.work-card__title {
+  margin: 0;
+  font-size: var(--text-lg);
+}
+
+.work-card__desc {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.work-card__link {
+  margin-top: auto;
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+.work-card__link:hover {
+  color: var(--color-accent-hover);
+  text-decoration: underline;
+}
+
+/* 區塊：聯絡方式 · 用途：email 按鈕，長網址會自動斷行不撐出橫向捲軸 · 刪掉 HTML 的聯絡區塊後可一起刪 */
+.contact__button {
+  display: inline-block;
+  max-width: 100%;
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-accent);
+  color: var(--color-bg);
+  border-radius: var(--radius);
+  text-decoration: none;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.contact__button:hover {
+  background: var(--color-accent-hover);
+}
+
+/* 斷點：平板直放以上，作品列表兩欄 */
+@media (min-width: 768px) {
+  .page {
+    padding: var(--space-6) var(--space-5);
+  }
+
+  .works__list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* 斷點：平板橫放、小筆電以上，內容放寬、作品列表三欄 */
+@media (min-width: 1024px) {
+  .page {
+    max-width: 960px;
+  }
+
+  .works__list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
