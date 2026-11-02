@@ -36,7 +36,7 @@
     </form>
 
     <!-- 區塊：結果 · 用途：顯示三種狀態（還沒填／填錯了／算出來了） · 不可刪
-         aria-live 讓螢幕閱讀器在內容改變時自動念出來 -->
+         id（result、result-main、result-detail）改了 scripts/split.js 要一起改；aria-live 讓螢幕閱讀器在內容改變時自動念出來 -->
     <section class="result result--empty" id="result" aria-live="polite">
       <p class="result__main" id="result-main">填好總金額和人數，按「計算」就會顯示每人要付多少。</p>
       <p class="result__detail" id="result-detail"></p>
