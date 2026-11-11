@@ -1,2 +1,8 @@
+# 金鑰檔：任何 .env 開頭的檔案都不准上傳到 GitHub（.env、.env.local、.env.production…）
 .env
+.env.*
+# 例外：.env.example 只放「變數名稱」不放真的金鑰，給別人看要設哪些變數，可以上傳
+!.env.example
+
+# Vercel 部署工具自己產生的設定資料夾，不用上傳
 .vercel

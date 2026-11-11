@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>天氣查詢 · Sunny Wen</title>
+  <meta name="description" content="輸入地名，查詢那裡現在的溫度和濕度。資料來自 Open-Meteo。">
+  <link rel="stylesheet" href="../styles/design-tokens.css">
+  <link rel="stylesheet" href="../styles/main.css">
+  <link rel="stylesheet" href="../styles/tools.css">
+
+  <!-- 天氣查詢專用樣式 · 只有這一頁用，所以寫在這個檔案裡，不放進共用的 tools.css -->
+  <style>
+    /* 區塊：搜尋表單 · 手機上輸入框和按鈕上下疊，寬螢幕並排 · 不可刪 */
+    @media (min-width: 768px) {
+      .tool-form--search {
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: end;
+      }
+
+      .tool-form--search .tool-button {
+        grid-column: auto;
+      }
+    }
+
+    /* 區塊：地點清單 · 同名地點最多列 5 個讓人選，一個一行（Flexbox 直向） · 不可刪 */
+    .place-list {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-2);
+      margin: var(--space-3) 0 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    /* 每個地點是一顆整行的按鈕，手機上手指好按 */
+    .place-button {
+      width: 100%;
+      padding: var(--space-2) var(--space-3);
+      background: var(--color-bg);
+      color: var(--color-text);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius);
+      font: inherit;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .place-button:hover {
+      border-color: var(--color-accent);
+    }
+
+    /* 地點後面的「新北市・台灣」用灰字，主角是地名 */
+    .place-button__area {
+      color: var(--color-text-muted);
+      font-size: var(--text-sm);
+    }
+
+    .place-list:empty {
+      display: none;
+    }
+
+    /* 狀態：查詢中 —— 灰字，告訴使用者「有在動，請等一下」 */
+    .result--loading .result__main {
+      color: var(--color-text-muted);
+    }
+
+    /* 狀態：找不到 —— 一般文字顏色，不用紅色，因為沒有人做錯事 */
+    .result--nodata .result__main {
+      color: var(--color-text);
+    }
+
+    /* 查詢中鎖住的按鈕變淡、游標變成「不能按」，避免重複送出 */
+    .tool-button:disabled,
+    .place-button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    /* 重試按鈕跟上面的錯誤訊息隔開一點 */
+    .retry-button {
+      margin-top: var(--space-3);
+    }
+  </style>
+</head>
+<body>
+  <main class="page page--tool">
+
+    <!-- 區塊：返回連結 · 用途：讓人從工具頁回到作品集首頁 · 不建議刪，否則手機上只能按上一頁 -->
+    <a class="back-link" href="../index.html">← 回作品集</a>
+
+    <!-- 區塊：工具標題 · 用途：說明這個工具做什麼、資料從哪來 · 不建議刪 -->
+    <header class="tool-header">
+      <h1 class="tool-title">天氣查詢</h1>
+      <p class="tool-intro">輸入地名，查那裡現在的溫度和濕度。資料來自免費的氣象服務 Open-Meteo。</p>
+    </header>
+
+    <!-- 區塊：搜尋表單 · 用途：一個地名輸入欄加查詢按鈕 · 不可刪，這是工具本體
+         id（weather-form、place、search-button）是給下面的程式找元素用的名牌，改了要一起改 -->
+    <form class="tool-form tool-form--search" id="weather-form" novalidate>
+      <div class="field">
+        <label class="field__label" for="place">地名</label>
+        <input class="field__input" id="place" name="place" type="text" autocomplete="off" placeholder="例如 台北市、板橋區">
+      </div>
+      <button class="tool-button" id="search-button" type="submit">查詢</button>
+    </form>
+
+    <!-- 區塊：結果 · 用途：顯示四種狀態（查詢中／成功／找不到／出錯了），以及地點清單 · 不可刪
+         id（result、result-main、result-detail、place-list、retry-button）改了下面的程式要一起改；aria-live 讓螢幕閱讀器在內容改變時自動念出來 -->
+    <section class="result result--empty" id="result" aria-live="polite">
+      <p class="result__main" id="result-main">輸入地名按「查詢」，會先列出符合的地點讓你選。</p>
+      <p class="result__detail" id="result-detail"></p>
+      <ul class="place-list" id="place-list"></ul>
+      <!-- 重試按鈕：只有「出錯了」的時候出現，按了就把剛剛失敗的那一次再問一遍 -->
+      <button class="tool-button retry-button" id="retry-button" type="button" hidden>重試</button>
+    </section>
+
+  </main>
+
+  <!-- 區塊：查詢邏輯 · 用途：問氣象服務要資料、顯示在畫面上 · 不可刪 -->
+  <script>
+    // ---- 兩個 API 的窗口網址 ----
+    // 第一個：把「地名」換成「經緯度」（氣象服務只認經緯度，不認地名）
+    const GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search";
+    // 第二個：用經緯度問現在的天氣
+    const FORECAST_URL = "https://api.open-meteo.com/v1/forecast";
+
+    // ---- 台灣縣市對照表 ----
+    // 為什麼要這張表：這個免費服務的中文地名不齊，打「苗栗」「台中」查不到，
+    // 打英文 Miaoli、Taichung 才查得到。所以打中文縣市名時，先換成英文再去問。
+    // 雲林、澎湖、連江查英文會找錯地方，改用縣政府所在地（斗六、馬公、南竿）。
+    // 新竹、嘉義的「縣」和「市」是不同地方，所以分開列。
+    // 每一筆都實際查過、確定找得到台灣那一個（2026-11-11）。不需要可整段刪掉，刪了只是中文縣市名可能查不到。
+    const TAIWAN_COUNTIES = {
+      "基隆": "Keelung",
+      "台北": "Taipei",
+      "新北": "New Taipei",
+      "桃園": "Taoyuan",
+      "新竹市": "Hsinchu",
+      "新竹縣": "Zhubei",
+      "新竹": "Hsinchu",
+      "苗栗": "Miaoli",
+      "台中": "Taichung",
+      "彰化": "Changhua",
+      "南投": "Nantou",
+      "雲林": "Douliu",
+      "嘉義市": "Chiayi",
+      "嘉義縣": "Taibao",
+      "嘉義": "Chiayi",
+      "台南": "Tainan",
+      "高雄": "Kaohsiung",
+      "屏東": "Pingtung",
+      "宜蘭": "Yilan",
+      "花蓮": "Hualien",
+      "台東": "Taitung",
+      "澎湖": "Magong",
+      "金門": "Kinmen",
+      "連江": "Nangan",
+      "馬祖": "Nangan"
+    };
+
+    // 把使用者打的字查表：「臺」一律當「台」，有「縣／市」的先照全名找，找不到再去掉「縣／市」找
+    // 查到回傳英文名，沒查到回傳空字串（就照原本打的字去問）
+    function findCounty(name) {
+      const normalized = name.replace(/臺/g, "台");
+      if (TAIWAN_COUNTIES[normalized]) {
+        return TAIWAN_COUNTIES[normalized];
+      }
+      const short = normalized.replace(/[縣市]$/, "");
+      return TAIWAN_COUNTIES[short] || "";
+    }
+
+    // ---- 拿到畫面上的元素（id 要跟上面 HTML 一模一樣） ----
+    const form = document.getElementById("weather-form");
+    const placeInput = document.getElementById("place");
+    const searchButton = document.getElementById("search-button");
+    const result = document.getElementById("result");
+    const resultMain = document.getElementById("result-main");
+    const resultDetail = document.getElementById("result-detail");
+    const placeList = document.getElementById("place-list");
+    const retryButton = document.getElementById("retry-button");
+
+    const emptyText = resultMain.textContent; // 一打開時的提示，清掉錯誤後要回到這句
+
+    // ---- 記住「剛剛失敗的是哪一次查詢」，按重試就再做一次 ----
+    let lastAction = null;
+    // 是否正在等對方回答：等的時候不接受新的查詢，避免連按好幾次
+    let busy = false;
+
+    // ---- 切換結果框的外觀，並重播淡入動畫 ----
+    // state 有五種：empty（一打開）、loading（查詢中）、success（成功）、nodata（找不到）、error（出錯了）
+    // canRetry 是 true 時才顯示「重試」按鈕
+    function showResult(state, main, detail, canRetry) {
+      result.className = "result result--" + state;
+      resultMain.textContent = main;
+      resultDetail.textContent = detail || "";
+      retryButton.hidden = !canRetry;
+      void result.offsetWidth; // 讓瀏覽器重新算一次，動畫才會重播
+      result.classList.add("is-updated");
+    }
+
+    // ---- 查詢中：鎖住所有按鈕，按鈕上的字改成「查詢中…」 ----
+    function setBusy(on) {
+      busy = on;
+      searchButton.disabled = on;
+      searchButton.textContent = on ? "查詢中…" : "查詢";
+      placeList.querySelectorAll("button").forEach(function (button) {
+        button.disabled = on;
+      });
+    }
+
+    // ---- 時間設定 · 最壞情況：8 秒（第一次逾時）+ 1 秒（等一下）+ 8 秒（重試又逾時）= 17 秒，不超過 20 秒 ----
+    // 改這三個數字前，先重算一次最壞情況，不可以超過 20 秒
+    const TIMEOUT_MS = 8000;     // 單次請求最多等 8 秒
+    const MAX_RETRIES = 1;       // 失敗後最多再試 1 次
+    const RETRY_DELAY_MS = 1000; // 重試前先等 1 秒
+
+    // ---- 把「哪一種失敗」寫成一個物件丟出去，下面才能依種類顯示不同的話 ----
+    // kind 有五種：timeout（逾時）、network（連不上）、server（5xx）、client（4xx）、baddata（回了看不懂的東西）
+    function fail(kind, detail) {
+      const error = new Error(kind);
+      error.kind = kind;
+      error.detail = detail || "";
+      return error;
+    }
+
+    // 等一段時間（重試前用）
+    function wait(ms) {
+      return new Promise(function (resolve) { setTimeout(resolve, ms); });
+    }
+
+    // ---- 問一次 API：有 8 秒截止時間、一定檢查 res.ok、把錯誤分類 ----
+    // fetch 本身永遠不會逾時，所以用 AbortController 自己計時，時間到就喊停
+    // fetch 只有「連不上」才丟錯誤；對方回 400、500 時 fetch 一樣算「成功」，所以要自己看 res.ok
+    async function getJSONOnce(url) {
+      const controller = new AbortController();
+      let timedOut = false;
+      const timer = setTimeout(function () {
+        timedOut = true;
+        controller.abort();
+      }, TIMEOUT_MS);
+
+      try {
+        let res;
+        try {
+          res = await fetch(url, { signal: controller.signal });
+        } catch (error) {
+          // 是我們自己喊停的 → 逾時；其他（通常是 TypeError）→ 連不上
+          if (timedOut) throw fail("timeout");
+          throw fail("network", error.message);
+        }
+
+        if (res.status >= 500) {
+          throw fail("server", "HTTP " + res.status);
+        }
+        if (!res.ok) {
+          // 4xx：對方說「你問的方式不對」。對方的 reason 可能是英文天書，只印到 Console 給開發的人看
+          let reason = "";
+          try {
+            const body = await res.json();
+            reason = body && body.reason ? body.reason : "";
+          } catch (ignore) {
+            reason = "(對方沒有附上 JSON 說明)";
+          }
+          console.error("[天氣查詢] 對方回 HTTP " + res.status + "，reason：", reason);
+          throw fail("client", "HTTP " + res.status);
+        }
+
+        try {
+          return await res.json(); // 收 JSON 這段也算在 8 秒裡，收到一半卡住一樣會被喊停
+        } catch (error) {
+          if (timedOut) throw fail("timeout");
+          throw fail("baddata", error.message);
+        }
+      } finally {
+        clearTimeout(timer); // 不管成功失敗都把計時器關掉
+      }
+    }
+
+    // ---- 問 API（含重試）：逾時、連不上、5xx 會等 1 秒再試 1 次；4xx 不重試 ----
+    // onRetry：要重試時呼叫，讓畫面改成「重試中」
+    async function getJSON(url, onRetry) {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          return await getJSONOnce(url);
+        } catch (error) {
+          const retryable = error.kind === "timeout" || error.kind === "network" || error.kind === "server";
+          if (!retryable || attempt >= MAX_RETRIES) throw error;
+          console.warn("[天氣查詢] 第 " + (attempt + 1) + " 次失敗（" + error.kind + "），" + RETRY_DELAY_MS / 1000 + " 秒後重試");
+          if (onRetry) onRetry(error);
+          await wait(RETRY_DELAY_MS);
+        }
+      }
+    }
+
+    // ---- 每一種失敗要對使用者說的話 · retry：要不要給「重試」按鈕 ----
+    const FAILURE_TEXT = {
+      timeout: {
+        main: "等太久了，氣象服務超過 8 秒沒回應（已自動重試 1 次）。",
+        detail: "可能是對方忙線或網路很慢，等一下再按「重試」。",
+        retry: true
+      },
+      network: {
+        main: "連不上氣象服務（已自動重試 1 次）。",
+        detail: "請檢查網路有沒有連上（Wi-Fi、行動數據），再按「重試」。",
+        retry: true
+      },
+      server: {
+        main: "氣象服務暫時有問題（已自動重試 1 次）。",
+        detail: "這是對方那邊的狀況，不是你做錯。過一會兒再按「重試」。",
+        retry: true
+      },
+      client: {
+        main: "查詢的設定有問題，氣象服務看不懂這次的問法。",
+        detail: "這是這個工具本身的設定錯誤，重按也一樣，需要修改程式。",
+        retry: false
+      },
+      baddata: {
+        main: "氣象服務回傳的資料看不懂，沒辦法顯示。",
+        detail: "可能是對方暫時出狀況，可以按「重試」看看。",
+        retry: true
+      }
+    };
+
+    // ---- 出錯了：依失敗種類顯示對應的話，不把 API 的技術原因秀出來 ----
+    function showFailure(error) {
+      const kind = error && error.kind;
+      const text = FAILURE_TEXT[kind];
+      if (!text) {
+        // 不在五種裡的意外（例如程式本身寫錯）：原因印到 Console，畫面一樣要給說法，不可以停在轉圈
+        console.error("[天氣查詢] 未分類的錯誤：", error);
+        showResult("error", "發生了預期外的問題。", "可以按「重試」，若一直出現請回報。", true);
+        return;
+      }
+      showResult("error", text.main, text.detail, text.retry);
+    }
+
+    // ---- 重試中：畫面告訴使用者第一次沒成功、正在再試一次 ----
+    const RETRY_REASON = {
+      timeout: "等太久沒回應",
+      network: "連不上",
+      server: "氣象服務暫時有問題"
+    };
+    function showRetrying(error) {
+      showResult(
+        "loading",
+        "第一次" + (RETRY_REASON[error.kind] || "沒成功") + "，重試中…",
+        "最多再等 " + (RETRY_DELAY_MS + TIMEOUT_MS) / 1000 + " 秒。"
+      );
+    }
+
+    // ---- 天氣代碼對照表（WMO 代碼）----
+    // 來源：Open-Meteo 官方文件 https://open-meteo.com/en/docs 的「WMO Weather interpretation codes」表，
+    // 使用者看英文原文自己查的（2026-11-11），29 個代碼每個各自翻，不分組 —— 小雨和大雨對要不要出門差很多。
+    // 注意：Chrome 自動翻譯會翻錯（例如把 51 毛毛雨和 61 雨都翻成「小雨」），要改請對照英文原文。
+    // 96、99 只有少數氣象模型會回，其他模型下冰雹時回 95 或 97。不可刪，刪了畫面會變回數字。
+    const WEATHER_CODES = {
+      0: "晴朗",            // Clear sky
+      1: "大致晴朗",        // Mainly clear
+      2: "局部多雲",        // Partly cloudy
+      3: "陰天",            // Overcast
+      45: "霧",             // Fog
+      48: "霧凇",           // Depositing rime fog（會結冰的霧）
+      51: "小毛毛雨",       // Light drizzle
+      53: "毛毛雨",         // Moderate drizzle
+      55: "大毛毛雨",       // Dense drizzle
+      56: "小凍毛毛雨",     // Light freezing drizzle
+      57: "大凍毛毛雨",     // Dense freezing drizzle
+      61: "小雨",           // Slight rain
+      63: "中雨",           // Moderate rain
+      65: "大雨",           // Heavy rain
+      66: "小凍雨",         // Light freezing rain
+      67: "大凍雨",         // Heavy freezing rain
+      71: "小雪",           // Slight snowfall
+      73: "中雪",           // Moderate snowfall
+      75: "大雪",           // Heavy snowfall
+      77: "米雪",           // Snow grains（很小的雪粒）
+      80: "小陣雨",         // Slight rain showers
+      81: "陣雨",           // Moderate rain showers
+      82: "強陣雨",         // Violent rain showers
+      85: "小陣雪",         // Slight snow showers
+      86: "大陣雪",         // Heavy snow showers
+      95: "雷雨",           // Thunderstorm
+      96: "雷雨夾小冰雹",   // Thunderstorm with slight hail
+      97: "強雷雨",         // Heavy thunderstorm
+      99: "雷雨夾大冰雹"    // Thunderstorm with heavy hail
+    };
+
+    // 把代碼換成中文；表上沒有的代碼不要亂猜，老實說「未知」並附上數字，之後才查得到是哪一個
+    function describeWeather(code) {
+      return WEATHER_CODES[code] || "天氣狀況未知（代碼 " + code + "）";
+    }
+
+    // ---- 把一個地點組成「新北市・台灣」這樣的說明 ----
+    function describeArea(place) {
+      return [place.admin2, place.country].filter(Boolean).join("・");
+    }
+
+    // ---- 第一步：用地名找地點，最多列 5 個 ----
+    async function searchPlaces() {
+      if (busy) return; // 正在查，這次不算
+
+      const name = placeInput.value.trim();
+      placeList.innerHTML = "";
+
+      if (name === "") {
+        placeInput.setAttribute("aria-invalid", "true");
+        showResult("error", "「地名」還沒填，請輸入想查的地方，例如 台北市。");
+        return;
+      }
+
+      // 是台灣縣市就換成英文、只找台灣；不是就照原本打的字找全世界
+      const county = findCounty(name);
+      const query = county || name;
+      const url = GEOCODING_URL + "?name=" + encodeURIComponent(query) + "&count=5&language=zh&format=json"
+        + (county ? "&countryCode=TW" : "");
+
+      lastAction = searchPlaces;
+      setBusy(true);
+      showResult("loading", "正在找「" + name + "」…");
+
+      let data;
+      try {
+        data = await getJSON(url, showRetrying);
+      } catch (error) {
+        showFailure(error);
+        return;
+      } finally {
+        setBusy(false);
+      }
+
+      const places = data.results || [];
+
+      // 找不到：不是錯誤，沒有人做錯事，所以不用紅色，給一個下一步的建議
+      if (places.length === 0) {
+        showResult(
+          "nodata",
+          "找不到「" + name + "」這個地方。",
+          "試試加上「市」或「區」（例如 板橋區），或改打英文名（例如 Toufen）。"
+        );
+        return;
+      }
+
+      showResult("empty", "找到 " + places.length + " 個地點，點一個看天氣：");
+
+      places.forEach(function (place) {
+        const item = document.createElement("li");
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "place-button";
+        button.textContent = place.name + " ";
+
+        const area = document.createElement("span");
+        area.className = "place-button__area";
+        area.textContent = describeArea(place);
+        button.appendChild(area);
+
+        button.addEventListener("click", function () {
+          showWeather(place);
+        });
+
+        item.appendChild(button);
+        placeList.appendChild(item);
+      });
+    }
+
+    // ---- 第二步：用選到的地點的經緯度問天氣 ----
+    async function showWeather(place) {
+      if (busy) return;
+
+      const url = FORECAST_URL
+        + "?latitude=" + place.latitude
+        + "&longitude=" + place.longitude
+        + "&current=temperature_2m,relative_humidity_2m,weather_code"
+        + "&timezone=auto";
+
+      lastAction = function () { showWeather(place); };
+      placeList.innerHTML = "";
+      setBusy(true);
+      showResult("loading", "正在查「" + place.name + "」現在的天氣…");
+
+      let data;
+      try {
+        data = await getJSON(url, showRetrying);
+      } catch (error) {
+        showFailure(error);
+        return;
+      } finally {
+        setBusy(false);
+      }
+
+      // 對方有回話、但少了我們要的資料，也當成出錯，不要讓 undefined 出現在畫面上
+      const now = data.current;
+      if (!now || now.temperature_2m === undefined) {
+        showFailure(fail("baddata", "缺少 current.temperature_2m"));
+        return;
+      }
+
+      showResult(
+        "success",
+        place.name + " 現在 " + now.temperature_2m + "°C・" + describeWeather(now.weather_code),
+        "濕度 " + now.relative_humidity_2m + "%・" + describeArea(place)
+      );
+    }
+
+    // ---- 事件：按鈕直接接 click，表單接 submit（按 Enter） ----
+    searchButton.addEventListener("click", function (event) {
+      event.preventDefault();
+      searchPlaces();
+    });
+
+    form.addEventListener("submit", function (event) {
+      event.preventDefault();
+      searchPlaces();
+    });
+
+    // 重試：把剛剛失敗的那一次再做一遍
+    retryButton.addEventListener("click", function () {
+      if (lastAction) lastAction();
+    });
+
+    // 改了地名，「還沒填」的紅字馬上消失，回到一開始的提示
+    placeInput.addEventListener("input", function () {
+      if (placeInput.getAttribute("aria-invalid") === "true") {
+        placeInput.removeAttribute("aria-invalid");
+        showResult("empty", emptyText);
+      }
+    });
+  </script>
+</body>
+</html>
